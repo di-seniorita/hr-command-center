@@ -5,6 +5,43 @@ const api = axios.create({
   timeout: 10000,
 });
 
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+    }
+    return Promise.reject(error);
+  },
+);
+
+export const loginUser = async (username, password) => {
+  const { data } = await api.post("/api/auth/login", { username, password });
+  return data;
+};
+
+export const registerUser = async (payload) => {
+  const { data } = await api.post("/api/auth/register", payload);
+  return data;
+};
+
+export const fetchCurrentUser = async () => {
+  const { data } = await api.get("/api/auth/me");
+  return data;
+};
+
 export const fetchAnalytics = async () => {
   const { data } = await api.get("/api/analytics");
   return data;
@@ -32,6 +69,16 @@ export const fetchCandidates = async () => {
 
 export const createCandidate = async (payload) => {
   const { data } = await api.post("/api/candidates", payload);
+  return data;
+};
+
+export const uploadResume = async (formData) => {
+  const { data } = await api.post("/api/candidates/upload-resume", formData, {
+    timeout: 30000,
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
   return data;
 };
 
@@ -119,6 +166,11 @@ export const customAiQuery = async (candidateIds, hrPrompt) => {
     { candidate_ids: candidateIds, hr_prompt: hrPrompt },
     { timeout: 120000 },
   );
+  return data;
+};
+
+export const fetchReport = async (reportName) => {
+  const { data } = await api.get(`/api/reports/${reportName}`);
   return data;
 };
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Search } from "lucide-react";
+import { Loader2, RefreshCw, Search, Upload } from "lucide-react";
 import toast from "react-hot-toast";
 import {
   createCandidate,
@@ -7,6 +7,7 @@ import {
   fetchVacancies,
   rescoreCandidate,
   updateCandidate,
+  uploadResume,
 } from "../api";
 
 const statusOptions = ["new", "screening", "interview", "offer", "rejected"];
@@ -43,13 +44,24 @@ const initialForm = {
   status: "new",
 };
 
+const initialUploadForm = {
+  file: null,
+  vacancy_id: "",
+  candidate_name: "",
+  candidate_email: "",
+  experience_years: 1,
+};
+
 function CandidatesPage() {
   const [candidates, setCandidates] = useState([]);
   const [vacancies, setVacancies] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [form, setForm] = useState(initialForm);
+  const [uploadForm, setUploadForm] = useState(initialUploadForm);
   const [loading, setLoading] = useState(true);
   const [rescoringCandidateId, setRescoringCandidateId] = useState(null);
+  const [isUploadingResume, setIsUploadingResume] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -115,6 +127,32 @@ function CandidatesPage() {
     await loadData();
   };
 
+  const handleUploadResume = async (event) => {
+    event.preventDefault();
+    if (!uploadForm.file) {
+      toast.error("Выберите PDF-файл");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", uploadForm.file);
+    formData.append("vacancy_id", String(Number(uploadForm.vacancy_id)));
+    formData.append("candidate_name", uploadForm.candidate_name);
+    formData.append("candidate_email", uploadForm.candidate_email);
+    formData.append("experience_years", String(Number(uploadForm.experience_years)));
+
+    setIsUploadingResume(true);
+    try {
+      const candidate = await uploadResume(formData);
+      toast.success(`Резюме загружено, AI-скор рассчитан: ${(candidate.ai_score || 0).toFixed(1)}%`);
+      setUploadForm(initialUploadForm);
+      setIsUploadModalOpen(false);
+      await loadData();
+    } finally {
+      setIsUploadingResume(false);
+    }
+  };
+
   const handleStatusChange = async (candidate) => {
     const currentIndex = statusOptions.indexOf(candidate.status);
     const nextStatus = statusOptions[(currentIndex + 1) % statusOptions.length];
@@ -137,16 +175,16 @@ function CandidatesPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="h-10 w-64 rounded-lg bg-gray-800 animate-pulse" />
+        <div className="h-10 w-64 animate-pulse rounded-lg bg-gray-800" />
         <div className="rounded-xl border border-gray-800 bg-gray-800 p-4">
-          <div className="mb-4 h-10 w-72 rounded-lg bg-gray-700 animate-pulse" />
+          <div className="mb-4 h-10 w-72 animate-pulse rounded-lg bg-gray-700" />
           <div className="space-y-3">
             {Array.from({ length: 5 }).map((_, index) => (
               <div key={`candidate-skeleton-${index}`} className="grid grid-cols-6 gap-4">
                 {Array.from({ length: 6 }).map((__, cellIndex) => (
                   <div
                     key={`candidate-skeleton-${index}-${cellIndex}`}
-                    className="h-8 rounded bg-gray-700 animate-pulse"
+                    className="h-8 animate-pulse rounded bg-gray-700"
                   />
                 ))}
               </div>
@@ -159,25 +197,36 @@ function CandidatesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-2xl font-bold">Кандидаты</h2>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="rounded-lg bg-indigo-500 px-4 py-2 font-medium text-white hover:bg-indigo-400"
-        >
-          Добавить кандидата
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="rounded-lg bg-indigo-500 px-4 py-2 font-medium text-white hover:bg-indigo-400"
+          >
+            Добавить кандидата
+          </button>
+          <button
+            onClick={() => setIsUploadModalOpen(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-600 bg-gray-800 px-4 py-2 font-medium text-gray-100 hover:bg-gray-700"
+          >
+            <Upload size={16} />
+            Загрузить резюме (PDF)
+          </button>
+        </div>
       </div>
 
-      <div className="flex items-center gap-2 rounded-xl border border-gray-800 bg-gray-800 px-3 py-2 max-w-md">
-        <Search size={16} className="text-gray-400" />
-        <input
-          type="text"
-          value={searchInput}
-          onChange={(event) => setSearchInput(event.target.value)}
-          placeholder="Поиск по имени..."
-          className="w-full bg-transparent text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none"
-        />
+      <div className="max-w-md rounded-xl border border-gray-800 bg-gray-800 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <Search size={16} className="text-gray-400" />
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="Поиск по имени..."
+            className="w-full bg-transparent text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none"
+          />
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-gray-800 bg-gray-800">
@@ -267,7 +316,7 @@ function CandidatesPage() {
                   required
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
                   value={form.name}
-                  onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                  onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
                 />
               </label>
 
@@ -278,7 +327,7 @@ function CandidatesPage() {
                   type="email"
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
                   value={form.email}
-                  onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+                  onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
                 />
               </label>
 
@@ -288,7 +337,7 @@ function CandidatesPage() {
                   required
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
                   value={form.vacancy_id}
-                  onChange={(e) => setForm((prev) => ({ ...prev, vacancy_id: e.target.value }))}
+                  onChange={(event) => setForm((prev) => ({ ...prev, vacancy_id: event.target.value }))}
                 >
                   <option value="">Выберите вакансию</option>
                   {vacancies.map((vacancy) => (
@@ -308,7 +357,9 @@ function CandidatesPage() {
                   step="0.5"
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
                   value={form.experience_years}
-                  onChange={(e) => setForm((prev) => ({ ...prev, experience_years: e.target.value }))}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, experience_years: event.target.value }))
+                  }
                 />
               </label>
 
@@ -319,7 +370,7 @@ function CandidatesPage() {
                   rows={4}
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
                   value={form.resume_text}
-                  onChange={(e) => setForm((prev) => ({ ...prev, resume_text: e.target.value }))}
+                  onChange={(event) => setForm((prev) => ({ ...prev, resume_text: event.target.value }))}
                 />
               </label>
 
@@ -329,7 +380,7 @@ function CandidatesPage() {
                   required
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
                   value={form.skillsText}
-                  onChange={(e) => setForm((prev) => ({ ...prev, skillsText: e.target.value }))}
+                  onChange={(event) => setForm((prev) => ({ ...prev, skillsText: event.target.value }))}
                 />
               </label>
 
@@ -338,7 +389,7 @@ function CandidatesPage() {
                 <select
                   className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
                   value={form.status}
-                  onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))}
+                  onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))}
                 >
                   {statusOptions.map((status) => (
                     <option key={status} value={status}>
@@ -348,7 +399,7 @@ function CandidatesPage() {
                 </select>
               </label>
 
-              <div className="md:col-span-2 flex justify-end gap-3 pt-2">
+              <div className="flex justify-end gap-3 pt-2 md:col-span-2">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -361,6 +412,105 @@ function CandidatesPage() {
                   className="rounded-lg bg-indigo-500 px-4 py-2 font-medium text-white hover:bg-indigo-400"
                 >
                   Сохранить
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isUploadModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-xl rounded-xl border border-gray-700 bg-gray-900 p-6">
+            <h3 className="mb-4 text-xl font-semibold">Загрузка резюме (PDF)</h3>
+            <form onSubmit={handleUploadResume} className="grid gap-4">
+              <label className="space-y-1 text-sm">
+                <span className="text-gray-300">PDF файл</span>
+                <input
+                  required
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  onChange={(event) =>
+                    setUploadForm((prev) => ({ ...prev, file: event.target.files?.[0] || null }))
+                  }
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 file:mr-3 file:rounded-md file:border-0 file:bg-gray-700 file:px-3 file:py-1 file:text-gray-100"
+                />
+              </label>
+
+              <label className="space-y-1 text-sm">
+                <span className="text-gray-300">Вакансия</span>
+                <select
+                  required
+                  value={uploadForm.vacancy_id}
+                  onChange={(event) =>
+                    setUploadForm((prev) => ({ ...prev, vacancy_id: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
+                >
+                  <option value="">Выберите вакансию</option>
+                  {vacancies.map((vacancy) => (
+                    <option key={vacancy.id} value={vacancy.id}>
+                      {vacancy.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1 text-sm">
+                <span className="text-gray-300">Имя кандидата</span>
+                <input
+                  required
+                  value={uploadForm.candidate_name}
+                  onChange={(event) =>
+                    setUploadForm((prev) => ({ ...prev, candidate_name: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
+                />
+              </label>
+
+              <label className="space-y-1 text-sm">
+                <span className="text-gray-300">Email кандидата</span>
+                <input
+                  required
+                  type="email"
+                  value={uploadForm.candidate_email}
+                  onChange={(event) =>
+                    setUploadForm((prev) => ({ ...prev, candidate_email: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
+                />
+              </label>
+
+              <label className="space-y-1 text-sm">
+                <span className="text-gray-300">Опыт (лет)</span>
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={uploadForm.experience_years}
+                  onChange={(event) =>
+                    setUploadForm((prev) => ({ ...prev, experience_years: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
+                />
+              </label>
+
+              <div className="flex justify-end gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsUploadModalOpen(false)}
+                  className="rounded-lg border border-gray-600 px-4 py-2 text-gray-300"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUploadingResume}
+                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2 font-medium text-white hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isUploadingResume && <Loader2 size={16} className="animate-spin" />}
+                  Загрузить
                 </button>
               </div>
             </form>
