@@ -1,6 +1,7 @@
 import { NavLink, Route, Routes } from "react-router-dom";
 import {
   BarChart3,
+  Bot,
   Brain,
   GraduationCap,
   LayoutDashboard,
@@ -15,12 +16,14 @@ import OnboardingPage from "./components/OnboardingPage";
 import AnalyticsPage from "./components/AnalyticsPage";
 import TrainingPage from "./components/TrainingPage";
 import ContractsPage from "./components/ContractsPage";
+import AiAssistantPage from "./components/AiAssistantPage";
 
 const navItems = [
   { to: "/", label: "Дашборд", icon: LayoutDashboard },
   { to: "/candidates", label: "Кандидаты", icon: Users },
   { to: "/onboarding", label: "Онбординг", icon: UserCheck },
   { to: "/analytics", label: "Аналитика + AI", icon: Brain },
+  { to: "/ai-assistant", label: "AI Ассистент", icon: Bot },
   { to: "/training", label: "Обучение", icon: GraduationCap },
   { to: "/contracts", label: "Договоры ГПХ", icon: ScrollText },
 ];
@@ -71,6 +74,7 @@ function App() {
             <Route path="/candidates" element={<CandidatesPage />} />
             <Route path="/onboarding" element={<OnboardingPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/ai-assistant" element={<AiAssistantPage />} />
             <Route path="/training" element={<TrainingPage />} />
             <Route path="/contracts" element={<ContractsPage />} />
           </Routes>

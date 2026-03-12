@@ -90,4 +90,36 @@ export const generateAct = async (id) => {
   return data;
 };
 
+export const checkAiHealth = async () => {
+  const { data } = await api.get("/api/ai/health");
+  return data;
+};
+
+export const summarizeCandidate = async (candidateId) => {
+  const { data } = await api.post(
+    "/api/ai/summarize",
+    { candidate_id: candidateId },
+    { timeout: 120000 },
+  );
+  return data;
+};
+
+export const compareCandidates = async (candidateIds, criteria) => {
+  const { data } = await api.post(
+    "/api/ai/compare",
+    { candidate_ids: candidateIds, criteria },
+    { timeout: 120000 },
+  );
+  return data;
+};
+
+export const customAiQuery = async (candidateIds, hrPrompt) => {
+  const { data } = await api.post(
+    "/api/ai/custom-query",
+    { candidate_ids: candidateIds, hr_prompt: hrPrompt },
+    { timeout: 120000 },
+  );
+  return data;
+};
+
 export default api;

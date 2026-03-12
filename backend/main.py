@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import random
+
+import httpx
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
@@ -25,6 +27,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Session, mapped_column, relationship, sessionmaker
 
 from ai_churn import ChurnModelBundle, predict_churn, train_churn_model
+from ai_llm import LLM_BASE_URL, send_to_llm
 from ai_scoring import score_candidate
 
 DATABASE_URL = "sqlite:///./hr_command_center.db"
@@ -297,6 +300,20 @@ class ContractOut(BaseModel):
     jira_tasks: List[str]
 
 
+class AiSummarizeRequest(BaseModel):
+    candidate_id: int
+
+
+class AiCompareRequest(BaseModel):
+    candidate_ids: List[int] = Field(min_length=2)
+    criteria: str = Field(min_length=2)
+
+
+class AiCustomQueryRequest(BaseModel):
+    candidate_ids: List[int] = Field(min_length=1)
+    hr_prompt: str = Field(min_length=2)
+
+
 app = FastAPI(title="HR Command Center API")
 
 app.add_middleware(
@@ -353,6 +370,25 @@ def _avg_engagement_map(db: Session) -> Dict[int, float]:
 
 def _build_candidate_score_text(resume_text: str, skills: List[str]) -> str:
     return f"{resume_text} {' '.join(skills)}"
+
+
+def _candidate_skills(candidate: Candidate) -> List[str]:
+    try:
+        return json.loads(candidate.skills_json)
+    except json.JSONDecodeError:
+        return []
+
+
+def _build_candidate_llm_block(candidate: Candidate) -> str:
+    skills = _candidate_skills(candidate)
+    vacancy_title = candidate.vacancy.title if candidate.vacancy else "Неизвестная вакансия"
+    return (
+        f"Кандидат: {candidate.name}\n"
+        f"Позиция: {vacancy_title}\n"
+        f"Резюме: {candidate.resume_text}\n"
+        f"Навыки: {', '.join(skills)}\n"
+        f"Опыт: {candidate.experience_years} лет\n"
+    )
 
 
 def _month_window(month_start: date) -> tuple[date, date]:
@@ -970,6 +1006,72 @@ def get_alerts(db: Session = Depends(get_db)):
         "high_churn_risk": high_churn_risk,
         "overdue_onboarding": overdue_onboarding,
     }
+
+
+@app.get("/api/ai/health")
+async def ai_health():
+    transport = httpx.AsyncHTTPTransport(proxy=None)
+    try:
+        async with httpx.AsyncClient(timeout=10.0, transport=transport) as client:
+            response = await client.get(f"{LLM_BASE_URL}/health")
+            response.raise_for_status()
+            return response.json()
+    except (httpx.RequestError, httpx.HTTPStatusError, ValueError):
+        return {"status": "unavailable"}
+
+
+@app.post("/api/ai/summarize")
+async def ai_summarize(payload: AiSummarizeRequest, db: Session = Depends(get_db)):
+    candidate = db.query(Candidate).filter(Candidate.id == payload.candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Кандидат не найден")
+
+    vacancy = db.query(Vacancy).filter(Vacancy.id == candidate.vacancy_id).first()
+    if not vacancy:
+        raise HTTPException(status_code=404, detail="Вакансия не найдена")
+
+    skills = _candidate_skills(candidate)
+    prompt = (
+        f"Проанализируй резюме кандидата на позицию {vacancy.title}.\n\n"
+        f"Резюме: {candidate.resume_text}\n"
+        f"Навыки: {', '.join(skills)}\n"
+        f"Опыт: {candidate.experience_years} лет\n\n"
+        "Выдели: 1) ключевые навыки 2) сильные стороны 3) слабые стороны 4) общая рекомендация"
+    )
+
+    response_text = await send_to_llm(prompt)
+    return {"summary": response_text}
+
+
+@app.post("/api/ai/compare")
+async def ai_compare(payload: AiCompareRequest, db: Session = Depends(get_db)):
+    candidates = db.query(Candidate).filter(Candidate.id.in_(payload.candidate_ids)).order_by(Candidate.id.asc()).all()
+    if len(candidates) != len(set(payload.candidate_ids)):
+        raise HTTPException(status_code=404, detail="Один или несколько кандидатов не найдены")
+
+    candidate_blocks = "\n\n".join(_build_candidate_llm_block(candidate) for candidate in candidates)
+    prompt = (
+        "Список кандидатов для анализа:\n\n"
+        f"{candidate_blocks}\n\n"
+        f"Сравни кандидатов по критерию: {payload.criteria}. Составь рейтинг и объясни выбор."
+    )
+
+    response_text = await send_to_llm(prompt)
+    return {"analysis": response_text}
+
+
+@app.post("/api/ai/custom-query")
+async def ai_custom_query(payload: AiCustomQueryRequest, db: Session = Depends(get_db)):
+    unique_ids = list(dict.fromkeys(payload.candidate_ids))
+    candidates = db.query(Candidate).filter(Candidate.id.in_(unique_ids)).order_by(Candidate.id.asc()).all()
+    if len(candidates) != len(unique_ids):
+        raise HTTPException(status_code=404, detail="Один или несколько кандидатов не найдены")
+
+    candidate_blocks = "\n\n".join(_build_candidate_llm_block(candidate) for candidate in candidates)
+    prompt = f"{payload.hr_prompt}\n\nДанные кандидатов:\n\n{candidate_blocks}"
+
+    response_text = await send_to_llm(prompt)
+    return {"answer": response_text}
 
 
 @app.get("/api/onboarding/{employee_id}/tasks", response_model=List[OnboardingTaskOut])
