@@ -8,6 +8,7 @@ import {
   UserCheck,
   Users,
 } from "lucide-react";
+import { Toaster } from "react-hot-toast";
 import DashboardPage from "./components/DashboardPage";
 import CandidatesPage from "./components/CandidatesPage";
 import OnboardingPage from "./components/OnboardingPage";
@@ -27,6 +28,7 @@ const navItems = [
 function App() {
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
+      <Toaster position="top-right" />
       <div className="flex min-h-screen">
         <aside className="w-72 border-r border-gray-800 bg-gray-950 p-5">
           <div className="mb-8 flex items-center gap-3">

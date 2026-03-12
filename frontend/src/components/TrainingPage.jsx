@@ -33,7 +33,26 @@ function TrainingPage() {
   }, [statusFilter]);
 
   if (loading) {
-    return <div className="text-gray-300">Загрузка обучения...</div>;
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-64 rounded-lg bg-gray-800 animate-pulse" />
+        <div className="h-10 w-44 rounded-lg bg-gray-800 animate-pulse" />
+        <div className="rounded-xl border border-gray-800 bg-gray-800 p-4">
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={`training-skeleton-${index}`} className="grid grid-cols-5 gap-4">
+                {Array.from({ length: 5 }).map((__, cellIndex) => (
+                  <div
+                    key={`training-skeleton-${index}-${cellIndex}`}
+                    className="h-8 rounded bg-gray-700 animate-pulse"
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

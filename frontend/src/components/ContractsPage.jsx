@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import toast from "react-hot-toast";
 import { createContract, fetchContracts, generateAct } from "../api";
 
 const contractStatuses = ["draft", "approved", "signed"];
@@ -62,6 +63,7 @@ function ContractsPage() {
     };
 
     await createContract(payload);
+    toast.success("Договор добавлен");
     setForm(initialForm);
     await loadContracts();
   };
@@ -72,7 +74,25 @@ function ContractsPage() {
   };
 
   if (loading) {
-    return <div className="text-gray-300">Загрузка договоров...</div>;
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-56 rounded-lg bg-gray-800 animate-pulse" />
+        <div className="rounded-xl border border-gray-800 bg-gray-800 p-4">
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={`contracts-skeleton-${index}`} className="grid grid-cols-6 gap-4">
+                {Array.from({ length: 6 }).map((__, cellIndex) => (
+                  <div
+                    key={`contracts-skeleton-${index}-${cellIndex}`}
+                    className="h-8 rounded bg-gray-700 animate-pulse"
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

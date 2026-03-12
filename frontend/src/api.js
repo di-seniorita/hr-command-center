@@ -15,6 +15,16 @@ export const fetchChurnRisk = async () => {
   return data;
 };
 
+export const fetchTurnoverHistory = async () => {
+  const { data } = await api.get("/api/analytics/turnover-history");
+  return data;
+};
+
+export const fetchAlerts = async () => {
+  const { data } = await api.get("/api/alerts");
+  return data;
+};
+
 export const fetchCandidates = async () => {
   const { data } = await api.get("/api/candidates");
   return data;
@@ -27,6 +37,11 @@ export const createCandidate = async (payload) => {
 
 export const updateCandidate = async (id, payload) => {
   const { data } = await api.put(`/api/candidates/${id}`, payload);
+  return data;
+};
+
+export const rescoreCandidate = async (id) => {
+  const { data } = await api.get(`/api/candidates/${id}/rescore`);
   return data;
 };
 

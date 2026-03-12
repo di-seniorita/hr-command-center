@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import toast from "react-hot-toast";
 import {
   createOnboardingTask,
   fetchEmployees,
@@ -80,6 +81,7 @@ function OnboardingPage() {
       id: task.id,
       is_completed: !task.is_completed,
     });
+    toast.success("Задача обновлена");
     const refreshed = await fetchOnboardingTasks(selectedEmployeeId);
     setTasks(refreshed);
   };
@@ -93,13 +95,29 @@ function OnboardingPage() {
       is_completed: false,
     });
 
+    toast.success("Задача добавлена");
     setTaskForm(defaultTaskForm);
     const refreshed = await fetchOnboardingTasks(selectedEmployeeId);
     setTasks(refreshed);
   };
 
   if (loading) {
-    return <div className="text-gray-300">Загрузка онбординга...</div>;
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-72 rounded-lg bg-gray-800 animate-pulse" />
+        <div className="rounded-xl border border-gray-800 bg-gray-800 p-4">
+          <div className="h-10 w-full max-w-lg rounded-lg bg-gray-700 animate-pulse" />
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div
+              key={`onboarding-skeleton-${index}`}
+              className="h-44 rounded-xl border border-gray-800 bg-gray-800 animate-pulse"
+            />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (

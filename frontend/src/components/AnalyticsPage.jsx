@@ -1,15 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Pie,
   PieChart,
-  Cell,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
+  ZAxis,
 } from "recharts";
 import { fetchAnalytics, fetchChurnRisk } from "../api";
 
@@ -21,22 +24,93 @@ function churnColor(value) {
   return "text-green-400";
 }
 
+function getRiskDotColor(churnProbability) {
+  if (churnProbability >= 0.7) return "#F87171";
+  if (churnProbability >= 0.4) return "#FACC15";
+  return "#4ADE80";
+}
+
+function ChurnScatterTooltip({ active, payload }) {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+
+  const point = payload[0]?.payload;
+  if (!point) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-700 bg-gray-900 p-3 text-sm text-gray-100">
+      <p className="font-semibold">{point.name}</p>
+      <p className="text-gray-400">{point.department}</p>
+      <p>Риск оттока: {(point.churn_probability * 100).toFixed(1)}%</p>
+      <p>Стаж: {point.tenure_months} мес.</p>
+      <p>Вовлечённость: {point.avg_engagement}</p>
+    </div>
+  );
+}
+
 function AnalyticsPage() {
   const [analytics, setAnalytics] = useState(null);
   const [churnRisk, setChurnRisk] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
-      const [analyticsData, churnData] = await Promise.all([fetchAnalytics(), fetchChurnRisk()]);
-      setAnalytics(analyticsData);
-      setChurnRisk(churnData);
+      setLoading(true);
+      try {
+        const [analyticsData, churnData] = await Promise.all([fetchAnalytics(), fetchChurnRisk()]);
+        setAnalytics(analyticsData);
+        setChurnRisk(churnData);
+      } finally {
+        setLoading(false);
+      }
     };
 
     load();
   }, []);
 
-  if (!analytics) {
-    return <div className="text-gray-300">Загрузка аналитики...</div>;
+  const salaryDomain = useMemo(() => {
+    if (churnRisk.length === 0) {
+      return [0, 1];
+    }
+
+    const salaryValues = churnRisk.map((row) => row.salary);
+    const minSalary = Math.min(...salaryValues);
+    const maxSalary = Math.max(...salaryValues);
+
+    if (minSalary === maxSalary) {
+      return [minSalary - 1, maxSalary + 1];
+    }
+
+    return [minSalary, maxSalary];
+  }, [churnRisk]);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-64 rounded-lg bg-gray-800 animate-pulse" />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="h-80 rounded-xl bg-gray-800 animate-pulse" />
+          <div className="h-80 rounded-xl bg-gray-800 animate-pulse" />
+        </div>
+        <div className="rounded-xl border border-gray-800 bg-gray-800 p-4">
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={`analytics-skeleton-${index}`} className="grid grid-cols-5 gap-4">
+                {Array.from({ length: 5 }).map((__, cellIndex) => (
+                  <div
+                    key={`analytics-skeleton-${index}-${cellIndex}`}
+                    className="h-8 rounded bg-gray-700 animate-pulse"
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -109,6 +183,45 @@ function AnalyticsPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-gray-800 bg-gray-800 p-4">
+        <h3 className="mb-4 text-lg font-semibold">Карта риска оттока</h3>
+        <div className="h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis
+                type="number"
+                dataKey="tenure_months"
+                name="Стаж"
+                unit=" мес."
+                stroke="#9CA3AF"
+                label={{ value: "Стаж (мес.)", position: "insideBottom", offset: -5, fill: "#9CA3AF" }}
+              />
+              <YAxis
+                type="number"
+                dataKey="avg_engagement"
+                name="Вовлечённость"
+                stroke="#9CA3AF"
+                label={{ value: "Вовлечённость", angle: -90, position: "insideLeft", fill: "#9CA3AF" }}
+              />
+              <ZAxis
+                type="number"
+                dataKey="salary"
+                name="Зарплата"
+                domain={salaryDomain}
+                range={[60, 200]}
+              />
+              <Tooltip content={<ChurnScatterTooltip />} />
+              <Scatter data={churnRisk}>
+                {churnRisk.map((entry) => (
+                  <Cell key={`scatter-cell-${entry.employee_id}`} fill={getRiskDotColor(entry.churn_probability)} />
+                ))}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
         </div>
       </div>
 

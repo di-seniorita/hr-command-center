@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { createCandidate, fetchCandidates, fetchVacancies, updateCandidate } from "../api";
+import { Loader2, RefreshCw, Search } from "lucide-react";
+import toast from "react-hot-toast";
+import {
+  createCandidate,
+  fetchCandidates,
+  fetchVacancies,
+  rescoreCandidate,
+  updateCandidate,
+} from "../api";
 
 const statusOptions = ["new", "screening", "interview", "offer", "rejected"];
 
@@ -41,6 +49,9 @@ function CandidatesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [loading, setLoading] = useState(true);
+  const [rescoringCandidateId, setRescoringCandidateId] = useState(null);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const loadData = async () => {
     setLoading(true);
@@ -57,12 +68,30 @@ function CandidatesPage() {
     loadData();
   }, []);
 
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setSearchTerm(searchInput.trim().toLowerCase());
+    }, 300);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [searchInput]);
+
   const vacancyMap = useMemo(() => {
     return vacancies.reduce((acc, vacancy) => {
       acc[vacancy.id] = vacancy.title;
       return acc;
     }, {});
   }, [vacancies]);
+
+  const filteredCandidates = useMemo(() => {
+    if (!searchTerm) {
+      return candidates;
+    }
+
+    return candidates.filter((candidate) => candidate.name.toLowerCase().includes(searchTerm));
+  }, [candidates, searchTerm]);
 
   const handleCreate = async (event) => {
     event.preventDefault();
@@ -80,6 +109,7 @@ function CandidatesPage() {
     };
 
     await createCandidate(payload);
+    toast.success("Кандидат добавлен");
     setForm(initialForm);
     setIsModalOpen(false);
     await loadData();
@@ -89,11 +119,42 @@ function CandidatesPage() {
     const currentIndex = statusOptions.indexOf(candidate.status);
     const nextStatus = statusOptions[(currentIndex + 1) % statusOptions.length];
     await updateCandidate(candidate.id, { status: nextStatus });
+    toast.success("Статус обновлён");
     await loadData();
   };
 
+  const handleRescore = async (candidateId) => {
+    setRescoringCandidateId(candidateId);
+    try {
+      await rescoreCandidate(candidateId);
+      toast.success("AI-скор пересчитан");
+      await loadData();
+    } finally {
+      setRescoringCandidateId(null);
+    }
+  };
+
   if (loading) {
-    return <div className="text-gray-300">Загрузка кандидатов...</div>;
+    return (
+      <div className="space-y-6">
+        <div className="h-10 w-64 rounded-lg bg-gray-800 animate-pulse" />
+        <div className="rounded-xl border border-gray-800 bg-gray-800 p-4">
+          <div className="mb-4 h-10 w-72 rounded-lg bg-gray-700 animate-pulse" />
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={`candidate-skeleton-${index}`} className="grid grid-cols-6 gap-4">
+                {Array.from({ length: 6 }).map((__, cellIndex) => (
+                  <div
+                    key={`candidate-skeleton-${index}-${cellIndex}`}
+                    className="h-8 rounded bg-gray-700 animate-pulse"
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -106,6 +167,17 @@ function CandidatesPage() {
         >
           Добавить кандидата
         </button>
+      </div>
+
+      <div className="flex items-center gap-2 rounded-xl border border-gray-800 bg-gray-800 px-3 py-2 max-w-md">
+        <Search size={16} className="text-gray-400" />
+        <input
+          type="text"
+          value={searchInput}
+          onChange={(event) => setSearchInput(event.target.value)}
+          placeholder="Поиск по имени..."
+          className="w-full bg-transparent text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none"
+        />
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-gray-800 bg-gray-800">
@@ -121,7 +193,7 @@ function CandidatesPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-700">
-            {candidates.map((candidate) => (
+            {filteredCandidates.map((candidate) => (
               <tr key={candidate.id} className="hover:bg-gray-700/30">
                 <td className="table-cell">
                   <p className="font-medium">{candidate.name}</p>
@@ -130,17 +202,32 @@ function CandidatesPage() {
                 <td className="table-cell">{vacancyMap[candidate.vacancy_id] || candidate.vacancy_title}</td>
                 <td className="table-cell">{candidate.experience_years}</td>
                 <td className="table-cell">
-                  <div className="w-44">
-                    <div className="mb-1 flex items-center justify-between text-xs text-gray-400">
-                      <span>Совпадение</span>
-                      <span>{(candidate.ai_score || 0).toFixed(1)}%</span>
+                  <div className="flex items-center gap-3">
+                    <div className="w-44">
+                      <div className="mb-1 flex items-center justify-between text-xs text-gray-400">
+                        <span>Совпадение</span>
+                        <span>{(candidate.ai_score || 0).toFixed(1)}%</span>
+                      </div>
+                      <div className="h-2 rounded bg-gray-700">
+                        <div
+                          className={`h-2 rounded ${scoreColor(candidate.ai_score || 0)}`}
+                          style={{ width: `${Math.min(100, candidate.ai_score || 0)}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-2 rounded bg-gray-700">
-                      <div
-                        className={`h-2 rounded ${scoreColor(candidate.ai_score || 0)}`}
-                        style={{ width: `${Math.min(100, candidate.ai_score || 0)}%` }}
-                      />
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRescore(candidate.id)}
+                      disabled={rescoringCandidateId === candidate.id}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-600 text-gray-300 transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      title="Пересчитать AI-скор"
+                    >
+                      {rescoringCandidateId === candidate.id ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <RefreshCw size={14} />
+                      )}
+                    </button>
                   </div>
                 </td>
                 <td className="table-cell">
@@ -158,6 +245,13 @@ function CandidatesPage() {
                 </td>
               </tr>
             ))}
+            {filteredCandidates.length === 0 && (
+              <tr>
+                <td className="table-cell text-center text-gray-400" colSpan={6}>
+                  Ничего не найдено
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

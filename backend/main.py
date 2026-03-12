@@ -9,7 +9,19 @@ from typing import Dict, List, Optional
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, String, Text, create_engine, func
+from sqlalchemy import (
+    Boolean,
+    Date,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    and_,
+    create_engine,
+    func,
+    or_,
+)
 from sqlalchemy.orm import DeclarativeBase, Session, mapped_column, relationship, sessionmaker
 
 from ai_churn import ChurnModelBundle, predict_churn, train_churn_model
@@ -131,6 +143,20 @@ CANDIDATE_STATUSES = {"new", "screening", "interview", "offer", "rejected"}
 TRAINING_STATUSES = {"planned", "in_progress", "completed"}
 ONBOARDING_CATEGORIES = {"documents", "access", "training", "intro"}
 CONTRACT_STATUSES = {"draft", "approved", "signed"}
+RUS_MONTH_SHORT = {
+    1: "Янв",
+    2: "Фев",
+    3: "Мар",
+    4: "Апр",
+    5: "Май",
+    6: "Июн",
+    7: "Июл",
+    8: "Авг",
+    9: "Сен",
+    10: "Окт",
+    11: "Ноя",
+    12: "Дек",
+}
 
 
 class VacancyBase(BaseModel):
@@ -329,11 +355,35 @@ def _build_candidate_score_text(resume_text: str, skills: List[str]) -> str:
     return f"{resume_text} {' '.join(skills)}"
 
 
+def _month_window(month_start: date) -> tuple[date, date]:
+    if month_start.month == 12:
+        next_month = date(month_start.year + 1, 1, 1)
+    else:
+        next_month = date(month_start.year, month_start.month + 1, 1)
+    month_end = next_month - timedelta(days=1)
+    return month_start, month_end
+
+
+def _shift_month(month_start: date, delta_months: int) -> date:
+    year = month_start.year
+    month = month_start.month + delta_months
+    while month <= 0:
+        month += 12
+        year -= 1
+    while month > 12:
+        month -= 12
+        year += 1
+    return date(year, month, 1)
+
+
+def _format_month_label(month_start: date) -> str:
+    return f"{RUS_MONTH_SHORT[month_start.month]} {month_start.year}"
+
+
 def _seed_data(db: Session) -> None:
     if db.query(Employee).count() > 0:
         return
 
-    departments = ["Development", "Marketing", "Sales", "HR", "Finance"]
     today = date.today()
 
     employee_payload = [
@@ -770,6 +820,38 @@ def get_analytics(db: Session = Depends(get_db)):
     }
 
 
+@app.get("/api/analytics/turnover-history")
+def get_turnover_history(db: Session = Depends(get_db)):
+    today = date.today()
+    current_month = date(today.year, today.month, 1)
+    months = [_shift_month(current_month, -shift) for shift in range(5, -1, -1)]
+
+    history = []
+
+    for month_start in months:
+        start, end = _month_window(month_start)
+
+        fired_in_month = (
+            db.query(Employee)
+            .filter(Employee.fired_date.isnot(None), Employee.fired_date >= start, Employee.fired_date <= end)
+            .count()
+        )
+
+        employees_at_time = (
+            db.query(Employee)
+            .filter(
+                Employee.hire_date <= end,
+                or_(Employee.fired_date.is_(None), Employee.fired_date > end),
+            )
+            .count()
+        )
+
+        turnover = round((fired_in_month / employees_at_time) * 100, 1) if employees_at_time > 0 else 0.0
+        history.append({"month": _format_month_label(month_start), "turnover": turnover})
+
+    return history
+
+
 @app.get("/api/analytics/churn-risk")
 def get_churn_risk(db: Session = Depends(get_db)):
     if churn_model is None:
@@ -809,6 +891,85 @@ def get_churn_risk(db: Session = Depends(get_db)):
 
     result.sort(key=lambda item: item["churn_probability"], reverse=True)
     return result
+
+
+@app.get("/api/alerts")
+def get_alerts(db: Session = Depends(get_db)):
+    today = date.today()
+
+    waiting_candidates_raw = (
+        db.query(Candidate)
+        .join(Vacancy, Vacancy.id == Candidate.vacancy_id)
+        .filter(Candidate.status == "new", Candidate.applied_date <= (today - timedelta(days=7)))
+        .order_by(Candidate.applied_date.asc())
+        .all()
+    )
+    candidates_waiting = [
+        {
+            "id": candidate.id,
+            "name": candidate.name,
+            "vacancy_title": candidate.vacancy.title if candidate.vacancy else "Неизвестно",
+            "days_waiting": (today - candidate.applied_date).days,
+        }
+        for candidate in waiting_candidates_raw
+    ]
+
+    high_churn_risk = []
+    if churn_model is not None:
+        avg_map = _avg_engagement_map(db)
+        active_employees = db.query(Employee).filter(Employee.status == "active").all()
+
+        for employee in active_employees:
+            tenure_months = max(
+                0,
+                (today.year - employee.hire_date.year) * 12 + (today.month - employee.hire_date.month),
+            )
+            avg_engagement = avg_map.get(employee.id, churn_model.fallback_engagement)
+            churn_probability = predict_churn(
+                churn_model,
+                {
+                    "tenure_months": tenure_months,
+                    "avg_engagement": avg_engagement,
+                    "is_remote": employee.is_remote,
+                    "salary": employee.salary,
+                    "department": employee.department,
+                },
+            )
+
+            if churn_probability > 0.7:
+                high_churn_risk.append(
+                    {
+                        "id": employee.id,
+                        "name": employee.name,
+                        "department": employee.department,
+                        "churn_probability": round(churn_probability, 4),
+                    }
+                )
+
+        high_churn_risk.sort(key=lambda item: item["churn_probability"], reverse=True)
+
+    overdue_tasks_raw = (
+        db.query(OnboardingTask)
+        .join(Employee, Employee.id == OnboardingTask.employee_id)
+        .filter(and_(OnboardingTask.due_date < today, OnboardingTask.is_completed.is_(False)))
+        .order_by(OnboardingTask.due_date.asc())
+        .all()
+    )
+    overdue_onboarding = [
+        {
+            "id": task.id,
+            "title": task.title,
+            "employee_name": task.employee.name if task.employee else "Неизвестно",
+            "due_date": task.due_date,
+        }
+        for task in overdue_tasks_raw
+    ]
+
+    return {
+        "candidates_waiting": candidates_waiting,
+        "high_churn_risk": high_churn_risk,
+        "overdue_onboarding": overdue_onboarding,
+    }
 
 
 @app.get("/api/onboarding/{employee_id}/tasks", response_model=List[OnboardingTaskOut])
