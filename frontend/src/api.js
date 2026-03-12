@@ -1,0 +1,78 @@
+import axios from "axios";
+
+const api = axios.create({
+  baseURL: "http://localhost:8000",
+  timeout: 10000,
+});
+
+export const fetchAnalytics = async () => {
+  const { data } = await api.get("/api/analytics");
+  return data;
+};
+
+export const fetchChurnRisk = async () => {
+  const { data } = await api.get("/api/analytics/churn-risk");
+  return data;
+};
+
+export const fetchCandidates = async () => {
+  const { data } = await api.get("/api/candidates");
+  return data;
+};
+
+export const createCandidate = async (payload) => {
+  const { data } = await api.post("/api/candidates", payload);
+  return data;
+};
+
+export const updateCandidate = async (id, payload) => {
+  const { data } = await api.put(`/api/candidates/${id}`, payload);
+  return data;
+};
+
+export const fetchVacancies = async () => {
+  const { data } = await api.get("/api/vacancies");
+  return data;
+};
+
+export const fetchEmployees = async (params = {}) => {
+  const { data } = await api.get("/api/employees", { params });
+  return data;
+};
+
+export const fetchOnboardingTasks = async (employeeId) => {
+  const { data } = await api.get(`/api/onboarding/${employeeId}/tasks`);
+  return data;
+};
+
+export const updateOnboardingTask = async (employeeId, payload) => {
+  const { data } = await api.put(`/api/onboarding/${employeeId}/tasks`, payload);
+  return data;
+};
+
+export const createOnboardingTask = async (employeeId, payload) => {
+  const { data } = await api.post(`/api/onboarding/${employeeId}/tasks`, payload);
+  return data;
+};
+
+export const fetchTraining = async (status = "") => {
+  const { data } = await api.get("/api/training", { params: status ? { status } : {} });
+  return data;
+};
+
+export const fetchContracts = async () => {
+  const { data } = await api.get("/api/contracts");
+  return data;
+};
+
+export const createContract = async (payload) => {
+  const { data } = await api.post("/api/contracts", payload);
+  return data;
+};
+
+export const generateAct = async (id) => {
+  const { data } = await api.post(`/api/contracts/${id}/generate-act`);
+  return data;
+};
+
+export default api;
