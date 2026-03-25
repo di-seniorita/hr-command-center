@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Search, Upload } from "lucide-react";
+import { Camera, Loader2, RefreshCw, Search, Upload } from "lucide-react";
 import toast from "react-hot-toast";
 import {
   createCandidate,
   fetchCandidates,
   fetchVacancies,
+  parseResumeImage,
   rescoreCandidate,
   updateCandidate,
   uploadResume,
@@ -52,16 +53,26 @@ const initialUploadForm = {
   experience_years: 1,
 };
 
+const initialImageParseForm = {
+  file: null,
+  vacancy_id: "",
+};
+
 function CandidatesPage() {
   const [candidates, setCandidates] = useState([]);
   const [vacancies, setVacancies] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [uploadForm, setUploadForm] = useState(initialUploadForm);
+  const [imageParseForm, setImageParseForm] = useState(initialImageParseForm);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState("");
+  const [imageRawResponse, setImageRawResponse] = useState("");
   const [loading, setLoading] = useState(true);
   const [rescoringCandidateId, setRescoringCandidateId] = useState(null);
   const [isUploadingResume, setIsUploadingResume] = useState(false);
+  const [isParsingImage, setIsParsingImage] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -89,6 +100,14 @@ function CandidatesPage() {
       clearTimeout(timeoutId);
     };
   }, [searchInput]);
+
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) {
+        URL.revokeObjectURL(imagePreviewUrl);
+      }
+    };
+  }, [imagePreviewUrl]);
 
   const vacancyMap = useMemo(() => {
     return vacancies.reduce((acc, vacancy) => {
@@ -153,6 +172,79 @@ function CandidatesPage() {
     }
   };
 
+  const handleImageSelected = (file) => {
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+
+    if (!file) {
+      setImageParseForm((prev) => ({ ...prev, file: null }));
+      setImagePreviewUrl("");
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    setImageParseForm((prev) => ({ ...prev, file }));
+    setImagePreviewUrl(previewUrl);
+  };
+
+  const handleParseResumeImage = async (event) => {
+    event.preventDefault();
+
+    if (!imageParseForm.file) {
+      toast.error("Выберите изображение");
+      return;
+    }
+
+    if (!imageParseForm.vacancy_id) {
+      toast.error("Выберите вакансию");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", imageParseForm.file);
+    formData.append("vacancy_id", String(Number(imageParseForm.vacancy_id)));
+
+    setIsParsingImage(true);
+    setImageRawResponse("");
+
+    try {
+      const data = await parseResumeImage(formData);
+
+      if (data?.candidate) {
+        toast.success(`Резюме распознано! AI-скор: ${(data.candidate.ai_score || 0).toFixed(1)}%`);
+        setIsImageModalOpen(false);
+        setImageParseForm(initialImageParseForm);
+        if (imagePreviewUrl) {
+          URL.revokeObjectURL(imagePreviewUrl);
+        }
+        setImagePreviewUrl("");
+        setImageRawResponse("");
+        await loadData();
+        return;
+      }
+
+      setImageRawResponse(data?.raw_llm_response || "");
+      toast.error("Не удалось автоматически распознать");
+    } catch (error) {
+      const rawText = error?.response?.data?.raw_llm_response || "";
+      setImageRawResponse(rawText);
+      toast.error("Не удалось автоматически распознать");
+    } finally {
+      setIsParsingImage(false);
+    }
+  };
+
+  const handleCloseImageModal = () => {
+    setIsImageModalOpen(false);
+    setImageParseForm(initialImageParseForm);
+    setImageRawResponse("");
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+    setImagePreviewUrl("");
+  };
+
   const handleStatusChange = async (candidate) => {
     const currentIndex = statusOptions.indexOf(candidate.status);
     const nextStatus = statusOptions[(currentIndex + 1) % statusOptions.length];
@@ -212,6 +304,13 @@ function CandidatesPage() {
           >
             <Upload size={16} />
             Загрузить резюме (PDF)
+          </button>
+          <button
+            onClick={() => setIsImageModalOpen(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-600 bg-gray-800 px-4 py-2 font-medium text-gray-100 hover:bg-gray-700"
+          >
+            <Camera size={16} />
+            Распознать фото резюме
           </button>
         </div>
       </div>
@@ -512,6 +611,92 @@ function CandidatesPage() {
                   {isUploadingResume && <Loader2 size={16} className="animate-spin" />}
                   Загрузить
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isImageModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-2xl rounded-xl border border-gray-700 bg-gray-900 p-6">
+            <h3 className="mb-4 text-xl font-semibold">Распознавание фото резюме</h3>
+            <form onSubmit={handleParseResumeImage} className="grid gap-4">
+              <label className="space-y-1 text-sm">
+                <span className="text-gray-300">Изображение (JPG / PNG / WEBP)</span>
+                <input
+                  required
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => handleImageSelected(event.target.files?.[0] || null)}
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 file:mr-3 file:rounded-md file:border-0 file:bg-gray-700 file:px-3 file:py-1 file:text-gray-100"
+                />
+              </label>
+
+              {imagePreviewUrl && (
+                <div className="rounded-lg border border-gray-700 bg-gray-800 p-3">
+                  <p className="mb-2 text-sm text-gray-300">Предпросмотр</p>
+                  <img
+                    src={imagePreviewUrl}
+                    alt="Предпросмотр резюме"
+                    className="max-h-64 w-full rounded-md object-contain"
+                  />
+                </div>
+              )}
+
+              <label className="space-y-1 text-sm">
+                <span className="text-gray-300">Вакансия</span>
+                <select
+                  required
+                  value={imageParseForm.vacancy_id}
+                  onChange={(event) =>
+                    setImageParseForm((prev) => ({ ...prev, vacancy_id: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2"
+                >
+                  <option value="">Выберите вакансию</option>
+                  {vacancies.map((vacancy) => (
+                    <option key={vacancy.id} value={vacancy.id}>
+                      {vacancy.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {imageRawResponse && (
+                <label className="space-y-1 text-sm">
+                  <span className="text-gray-300">Сырой ответ модели</span>
+                  <textarea
+                    readOnly
+                    rows={6}
+                    value={imageRawResponse}
+                    className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-gray-200"
+                  />
+                </label>
+              )}
+
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <div className="text-sm text-indigo-300">
+                  {isParsingImage ? "AI анализирует изображение..." : ""}
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={handleCloseImageModal}
+                    className="rounded-lg border border-gray-600 px-4 py-2 text-gray-300"
+                    disabled={isParsingImage}
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isParsingImage}
+                    className="inline-flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2 font-medium text-white hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {isParsingImage && <Loader2 size={16} className="animate-spin" />}
+                    Распознать
+                  </button>
+                </div>
               </div>
             </form>
           </div>

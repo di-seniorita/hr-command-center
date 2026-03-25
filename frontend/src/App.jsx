@@ -17,6 +17,7 @@ import { fetchCurrentUser } from "./api";
 import AiAssistantPage from "./components/AiAssistantPage";
 import AnalyticsPage from "./components/AnalyticsPage";
 import CandidatesPage from "./components/CandidatesPage";
+import ChatbotPanel from "./components/ChatbotPanel";
 import ContractsPage from "./components/ContractsPage";
 import DashboardPage from "./components/DashboardPage";
 import LoginPage from "./components/LoginPage";
@@ -174,6 +175,8 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
+
+        <ChatbotPanel />
       </div>
     </div>
   );

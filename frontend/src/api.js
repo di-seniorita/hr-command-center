@@ -82,6 +82,16 @@ export const uploadResume = async (formData) => {
   return data;
 };
 
+export const parseResumeImage = async (formData) => {
+  const { data } = await api.post("/api/ai/parse-resume-image", formData, {
+    timeout: 120000,
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return data;
+};
+
 export const updateCandidate = async (id, payload) => {
   const { data } = await api.put(`/api/candidates/${id}`, payload);
   return data;
@@ -166,6 +176,16 @@ export const customAiQuery = async (candidateIds, hrPrompt) => {
     { candidate_ids: candidateIds, hr_prompt: hrPrompt },
     { timeout: 120000 },
   );
+  return data;
+};
+
+export const sendChatbotMessage = async (message) => {
+  const { data } = await api.post("/api/chatbot", { message }, { timeout: 60000 });
+  return data;
+};
+
+export const fetchChatbotFaq = async () => {
+  const { data } = await api.get("/api/chatbot/faq");
   return data;
 };
 
